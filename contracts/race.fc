@@ -1,0 +1,97 @@
+#include "imports/stdlib.fc";
+
+;; =============== storage =============================
+
+(cell, int) load_data() inline {
+    var ds = get_data().begin_parse();
+    var leaderboard = ds~load_ref();
+    var num_entries = ds~load_uint(4); ;; max 16 entries but we will use only 10
+    return (leaderboard, num_entries);
+}
+
+() save_data(cell leaderboard, int num_entries) impure inline {
+    set_data(begin_cell()
+        .store_ref(leaderboard)
+        .store_uint(num_entries, 4)
+        .end_cell());
+}
+
+;; =============== constructor =============================
+
+() constructor() impure {
+    ;; Initialize the state. Create an empty leaderboard and set number of entries to 0.
+    cell empty_leaderboard = begin_cell().end_cell();
+    int initial_num_entries = 0;
+    save_data(empty_leaderboard, initial_num_entries);
+}
+
+;; =============== messages =============================
+
+() recv_internal(int msg_value, cell in_msg, slice in_msg_body) impure {
+    ;; Ensure that the message body is not empty
+    if (in_msg_body.slice_empty?()) {
+        return ();
+    }
+    ;; Load the operation code from the message body
+    int op = in_msg_body~load_uint(32);
+    ;; Load the current leaderboard data from the contract storage
+    var (leaderboard, num_entries) = load_data();
+
+    if (op == 1) {
+        ;; Load the new time and address from the message body
+        int new_time = in_msg_body~load_uint(64);
+        cell new_address = in_msg_body~load_ref();
+        
+        var updated_leaderboard = begin_cell();
+        int inserted = 0; ;; boolean represented as int (0 = false, 1 = true)
+        int updated = 0; ;; boolean represented as int (0 = false, 1 = true)
+        var ds = leaderboard.begin_parse();
+        
+        ;; Iterate over the current leaderboard entries using a while loop
+        int i = 0;
+        while (i < num_entries) {
+            int time = ds~load_uint(64);
+            cell address = ds~load_ref();
+            
+            ;; Compare the current address with the new address
+            var address_slice = address.begin_parse();
+            var new_address_slice = new_address.begin_parse();
+            
+            ;; Extract the first 32 bytes of the address for comparison
+            int address_bytes = address_slice~load_uint(256); ;; Load as uint with appropriate bit length
+            int new_address_bytes = new_address_slice~load_uint(256); ;; Same length
+            
+            if (address_bytes == new_address_bytes) {
+                ;; Update the entry if the new time is shorter
+                if (new_time < time) {
+                    updated_leaderboard = updated_leaderboard.store_uint(new_time, 64).store_ref(new_address);
+                    updated = 1;
+                } else {
+                    ;; Keep the old entry if the new time is not shorter
+                    updated_leaderboard = updated_leaderboard.store_uint(time, 64).store_ref(address);
+                }
+                inserted = 1; ;; Mark that we have handled this address
+            } else {
+                ;; Preserve the existing entry
+                updated_leaderboard = updated_leaderboard.store_uint(time, 64).store_ref(address);
+            }
+            i = i + 1;
+        }
+        
+        ;; Add the new entry if it was not inserted and there is space
+        if ((inserted == 0) & (num_entries < 10)) {
+            updated_leaderboard = updated_leaderboard.store_uint(new_time, 64).store_ref(new_address);
+            num_entries += 1;
+        }
+
+        ;; Save the updated leaderboard back to storage
+        save_data(updated_leaderboard.end_cell(), num_entries);
+    }
+}
+
+;; =============== getters =============================
+
+cell get_leaderboard() method_id {
+    var (leaderboard, _) = load_data();
+    return leaderboard;
+}
