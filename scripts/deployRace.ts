@@ -1,6 +1,5 @@
 import { TonClient, abiContract, signerNone } from "@tonclient/core";
 import { libNode } from "@tonclient/lib-node";
-import { Cell } from "@ton/core";
 import fs from 'fs';
 
 // Load the TON SDK native library
@@ -16,8 +15,9 @@ const raceAbi = {
             { "name": "in_msg", "type": "cell" },
             { "name": "in_msg_body", "type": "slice" }
         ], "outputs": [] },
-        { "name": "get_leaderboard", "inputs": [], "outputs": [
-            { "name": "leaderboard", "type": "cell" }
+        { "name": "get_address_and_time", "inputs": [{ "name": "index", "type": "int" }], "outputs": [
+            { "name": "time", "type": "int" },
+            { "name": "address", "type": "slice" }
         ] }
     ],
     "events": [],
@@ -33,11 +33,10 @@ async function deployRaceContract() {
         // Read the compiled contract file
         const bocPath = '../Race/build/race.cell'; // Replace with the actual path to your compiled contract BoC
         const boc = fs.readFileSync(bocPath);
-        const cell = Cell.fromBoc(boc)[0];
+        const tvc = boc.toString('base64'); // Base64 encoded TVC
 
-        // Ensure TVC is correctly encoded
         const deploySet = {
-            tvc: boc.toString('base64') // Base64 encoded TVC
+            tvc
         };
 
         const callSet = {
@@ -72,6 +71,8 @@ async function deployRaceContract() {
             result: 'id',
             timeout: 60000, // Wait for up to 60 seconds
         });
+
+        console.log(`Contract is now active at address: ${address}`);
 
     } catch (error) {
         console.error("Deployment error:", error);
